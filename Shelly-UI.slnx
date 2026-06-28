@@ -10,7 +10,10 @@
   <Project Path="Shelly-Notifications/Shelly-Notifications.csproj" />
   <Project Path="Shelly.Gtk/Shelly.Gtk.csproj" />
   <Project Path="Shelly.Cli/Shelly.Cli.csproj" />
-  <Project Path="Shelly.Background/Shelly.Background.csproj" />
+  <Project Path="Shelly.Background/Shelly.Background.csproj">
+    <BuildDependency Project="PackageManager/PackageManager.csproj" />
+    <BuildDependency Project="Shelly.Utilities/Shelly.Utilities.csproj" />
+  </Project>
   <Project Path="Shelly.Cli.Tests/Shelly.Cli.Tests.csproj" />
   <Project Path="Shelly.Gtk.Tests/Shelly.Gtk.Tests.csproj" />
   <Project Path="Shelly.Keys/Shelly.Keys.csproj" />
