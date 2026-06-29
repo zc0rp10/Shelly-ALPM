@@ -24,6 +24,11 @@ public class FlatpakManage(
     private readonly CancellationTokenSource _cts = new();
     private Gio.ListStore? _listStore;
     private SingleSelection? _selectionModel;
+    private ListView? _listViewUpdates;
+    private SignalListItemFactory? _factoryUpdates;
+    private Gio.ListStore? _listStoreUpdates;
+    private SingleSelection? _selectionModelUpdates;
+    private List<FlatpakPackageDto> _allUpdates = [];
     private List<FlatpakPackageDto> _allPackages = [];
     private string _searchText = string.Empty;
     private SignalListItemFactory? _factory;
@@ -47,7 +52,17 @@ public class FlatpakManage(
         _factory.OnSetup += OnSetup;
         _factory.OnBind += OnBind;
         _listView.SetFactory(_factory);
+        
+        _listViewUpdates= (ListView)builder.GetObject("updates_flatpak")!;
+        _listStoreUpdates = Gio.ListStore.New(StringObject.GetGType());
+        _selectionModelUpdates = SingleSelection.New(_listStoreUpdates);
+        _listViewUpdates.SetModel(_selectionModelUpdates);
 
+        _factoryUpdates = SignalListItemFactory.New();
+        _factoryUpdates.OnSetup += OnSetupUpdates;
+        _factoryUpdates.OnBind += OnBindUpdates;
+        _listViewUpdates.SetFactory(_factoryUpdates);
+     
         _listView.OnRealize += (_, _) => { _ = LoadDataAsync(_cts.Token); };
         flatpakRepairButton.OnClicked += (_, _) =>
         {
@@ -148,6 +163,127 @@ public class FlatpakManage(
         var sizeText = SizeHelpers.FormatSize(package.InstalledSize);
         infoLabel.SetText(string.IsNullOrEmpty(package.Version) ? sizeText : $"{package.Version} • {sizeText}");
     }
+    
+     private static void OnSetupUpdates(SignalListItemFactory sender, SignalListItemFactory.SetupSignalArgs args)
+    {
+        var listItem = (ListItem)args.Object;
+        var mainVbox = Box.New(Orientation.Vertical, 0);
+
+        var contentGrid = Grid.New();
+        contentGrid.MarginStart = 10;
+        contentGrid.MarginEnd = 10;
+        contentGrid.MarginTop = 5;
+        contentGrid.MarginBottom = 5;
+        contentGrid.ColumnSpacing = 10;
+        contentGrid.RowSpacing = 2;
+        contentGrid.Hexpand = true;
+
+        var icon = Image.New();
+        contentGrid.Attach(icon, 0, 0, 1, 2);
+
+        var nameLabel = Label.New(string.Empty);
+        nameLabel.Halign = Align.Start;
+        contentGrid.Attach(nameLabel, 1, 0, 1, 1);
+
+        var idLabel = Label.New(string.Empty);
+        idLabel.Halign = Align.Start;
+        idLabel.AddCssClass("dim-label");
+        contentGrid.Attach(idLabel, 1, 1, 1, 1);
+
+        var versionLabel = Label.New(string.Empty);
+        versionLabel.Halign = Align.End;
+        versionLabel.Hexpand = true;
+        contentGrid.Attach(versionLabel, 2, 0, 1, 2);
+
+        mainVbox.Append(contentGrid);
+
+        var permissionExpander = Expander.New(Translations.T("Permission Changes"));
+        permissionExpander.MarginStart = 50;
+        permissionExpander.MarginEnd = 10;
+        permissionExpander.MarginBottom = 5;
+        permissionExpander.Visible = false;
+
+        var permissionVbox = Box.New(Orientation.Vertical, 2);
+        permissionExpander.SetChild(permissionVbox);
+
+        mainVbox.Append(permissionExpander);
+
+        listItem.SetChild(mainVbox);
+    }
+
+    private void OnBindUpdates(SignalListItemFactory sender, SignalListItemFactory.BindSignalArgs args)
+    {
+        var listItem = (ListItem)args.Object;
+        if (listItem.GetItem() is not StringObject stringObj) return;
+        if (listItem.GetChild() is not Box mainVbox) return;
+
+        var packageId = stringObj.GetString();
+        var package = _allUpdates.FirstOrDefault(p => p.Id == packageId);
+        if (package == null) return;
+
+        var contentGrid = (Grid)mainVbox.GetFirstChild()!;
+        var icon = (Image)contentGrid.GetChildAt(0, 0)!;
+        var nameLabel = (Label)contentGrid.GetChildAt(1, 0)!;
+        var idLabel = (Label)contentGrid.GetChildAt(1, 1)!;
+        var versionLabel = (Label)contentGrid.GetChildAt(2, 0)!;
+
+        var permissionExpander = (Expander)mainVbox.GetLastChild()!;
+        var permissionVbox = (Box)permissionExpander.GetChild()!;
+
+        string path;
+        if (package.InstallLevel == InstallLevel.User)
+        {
+            path =
+                Path.Combine(XdgPaths.DataHome(), "flatpak/appstream", package.Remote,
+                    "x86_64/active/icons/64x64", $"{package.Id}.png");
+        }
+        else
+        {
+            path =
+                $"/var/lib/flatpak/appstream/{package.Remote}/x86_64/active/icons/64x64/{package.Id}.png";
+        }
+
+        if (File.Exists(path))
+            icon.SetFromFile(path);
+        else
+            icon.SetFromIconName("application-x-executable");
+
+        nameLabel.SetText(package.Name);
+        idLabel.SetText(package.Id);
+        versionLabel.SetText(package.Version);
+
+        var child = permissionVbox.GetFirstChild();
+        while (child != null)
+        {
+            var next = child.GetNextSibling();
+            permissionVbox.Remove(child);
+            child = next;
+        }
+
+        if (package.Permissions.Count > 0)
+        {
+            permissionExpander.Visible = true;
+            foreach (var perm in package.Permissions)
+            {
+                var permLabel = Label.New(perm);
+                permLabel.Halign = Align.Start;
+                if ("+".StartsWith(perm))
+                {
+                    permLabel.AddCssClass("success");
+                }
+                else if ("-".StartsWith(perm))
+                {
+                    permLabel.AddCssClass("error");
+                }
+
+                permissionVbox.Append(permLabel);
+            }
+        }
+        else
+        {
+            permissionExpander.Visible = false;
+        }
+    }
 
     private async Task FlatpakRepairAsync()
     {
@@ -172,9 +308,14 @@ public class FlatpakManage(
     {
         try
         {
-            var packages = await unprivilegedOperationService.ListFlatpakPackages();
-            _allPackages = !_showRuntimesCheck.Active ? packages.Where(p => p.Kind == 0).ToList() : packages;
+            var listTask = unprivilegedOperationService.ListFlatpakPackages();
+            var updateTask = unprivilegedOperationService.ListFlatpakUpdates();
 
+            var result = await Task.WhenAll(listTask, updateTask);
+            
+            _allPackages = !_showRuntimesCheck.Active ? result[0].Where(p => p.Kind == 0).ToList() : result[0];
+            _allUpdates = result[1];
+            
             ct.ThrowIfCancellationRequested();
 
             GLib.Functions.IdleAdd(0, () =>
@@ -197,7 +338,7 @@ public class FlatpakManage(
 
     private void ApplyFilter()
     {
-        if (_listStore == null) return;
+        if (_listStore == null || _listStoreUpdates == null) return;
 
         var filtered = string.IsNullOrWhiteSpace(_searchText)
             ? _allPackages
@@ -205,7 +346,14 @@ public class FlatpakManage(
                 p.Name.Contains(_searchText, StringComparison.OrdinalIgnoreCase) ||
                 p.Id.Contains(_searchText, StringComparison.OrdinalIgnoreCase));
 
+        var filteredUpdates = string.IsNullOrWhiteSpace(_searchText)
+            ? _allUpdates
+            : _allUpdates.Where(p =>
+                p.Name.Contains(_searchText, StringComparison.OrdinalIgnoreCase) ||
+                p.Id.Contains(_searchText, StringComparison.OrdinalIgnoreCase));
+
         _listStore.RemoveAll();
+        _listStoreUpdates.RemoveAll();
         _stringObjectRefs.Clear();
 
         foreach (var package in filtered)
@@ -213,6 +361,13 @@ public class FlatpakManage(
             var strObj = StringObject.New(package.Id);
             _stringObjectRefs.Add(strObj);
             _listStore.Append(strObj);
+        }
+
+        foreach (var package in filteredUpdates)
+        {
+            var strObj = StringObject.New(package.Id);
+            _stringObjectRefs.Add(strObj);
+            _listStoreUpdates.Append(strObj);
         }
     }
 
@@ -269,7 +424,9 @@ public class FlatpakManage(
         _cts.Cancel();
         _cts.Dispose();
         _listStore?.RemoveAll();
+        _listStoreUpdates?.RemoveAll();
         _stringObjectRefs.Clear();
         _allPackages.Clear();
+        _allUpdates.Clear();
     }
 }
