@@ -867,6 +867,10 @@ public class PackageUpdate(
                 _errorLabel.Visible = true;
             }
         }
+        finally
+        {
+            GC.Collect(2, GCCollectionMode.Aggressive, true, true);
+        }
     }
 
     private async Task ConfirmPartialUpdateAsync(Action onConfirmed)

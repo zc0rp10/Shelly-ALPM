@@ -1081,6 +1081,10 @@ public sealed class PackageManagement(
             }
             Console.WriteLine($"Failed to load packages: {e.Message}");
         }
+        finally
+        {
+            GC.Collect(2, GCCollectionMode.Aggressive, true, true);
+        }
     }
 
     private void ApplyFilter()

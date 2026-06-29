@@ -151,7 +151,7 @@ public class FlatpakInstall(
             _descriptionRevealer.SetRevealChild(!isRevealed);
             _descriptionRevealButton.Label = !isRevealed ? Translations.T("Show less") : Translations.T("Show more");
         };
-        
+
         _remoteDropDown = (DropDown)builder.GetObject("overlay_remote_selection")!;
         _remoteDropDown.OnNotify += (_, args) =>
         {
@@ -161,6 +161,7 @@ public class FlatpakInstall(
         };
 
         _overlayCloseButton = (Button)builder.GetObject("overlay_back_button")!;
+        _overlayCloseButton.OnClicked += (_, _) => CloseOverlay();
         _overlayInstallButton = (Button)builder.GetObject("overlay_install_button")!;
         _versionHistoryButton = (Button)builder.GetObject("version_history_button")!;
         _permissionsButton = (Button)builder.GetObject("overlay_permissions_button")!;
@@ -263,9 +264,9 @@ public class FlatpakInstall(
                     return true;
                 }
 
-                if (_overlay.GetVisible())
+                if (_overlay is { } overlay && overlay.GetVisible())
                 {
-                    _overlay.SetVisible(false);
+                    CloseOverlay();
                     return true;
                 }
 
@@ -495,7 +496,7 @@ public class FlatpakInstall(
         void NavigateToInstallPage(int index)
         {
             _selectedCategory = (FlatpakCategories)index;
-            _overlay.SetVisible(false);
+            CloseOverlay();
             _activePage = "install";
             _mainContentStack.SetVisibleChild((Widget)builder.GetObject("list_overlay")!);
             sectionNavList.SelectRow(navInstallRow);
@@ -520,8 +521,6 @@ public class FlatpakInstall(
             var obj = pkgObj.Package;
 
             if (obj == null) return;
-
-            _overlayCloseButton.OnClicked += (_, _) => { _overlay.SetVisible(false); };
 
             _overlayIconImage = (Image)builder.GetObject("overlay_icon")!;
 
@@ -716,11 +715,11 @@ public class FlatpakInstall(
             image.SetMarginEnd(6);
             image.SetMarginStart(6);
             box.Append(image);
-            
+
             var nameLabel = Label.New(CapitalizeFirst(link.Key));
             nameLabel.Halign = Align.Start;
             labelBox.Append(nameLabel);
-            
+
             var linkLabel = Label.New(link.Value);
             linkLabel.Selectable = true;
             labelBox.Append(linkLabel);
@@ -730,15 +729,15 @@ public class FlatpakInstall(
             var spacer = Box.New(Orientation.Horizontal, 0);
             spacer.Hexpand = true;
             box.Append(spacer);
-            
+
             var linkButton = Button.NewFromIconName("web-browser");
             linkButton.Halign = Align.End;
-            linkButton.OnClicked += async (_, _) => {  Functions.ShowUri(null, link.Value, 0); };
+            linkButton.OnClicked += async (_, _) => { Functions.ShowUri(null, link.Value, 0); };
             box.Append(linkButton);
             _overlayListBox.Append(box);
         }
     }
-    
+
     private static string GetIconForUrlType(string urlType) =>
         urlType.ToLowerInvariant() switch
         {
@@ -758,7 +757,7 @@ public class FlatpakInstall(
 
     private void PopulateScreenshots(List<string> imageUrls)
     {
-        _carousel.RemoveAll();
+        ClearCarousel();
 
         foreach (var url in imageUrls)
         {
@@ -778,10 +777,12 @@ public class FlatpakInstall(
                     var bytes = await _httpClient.GetByteArrayAsync(url);
                     GLib.Functions.IdleAdd(0, () =>
                     {
-                        var stream = Gio.MemoryInputStream.NewFromBytes(GLib.Bytes.New(bytes));
-                        var pixbuf = GdkPixbuf.Pixbuf.NewFromStream(stream, null)!;
-                        var texture = Gdk.Texture.NewForPixbuf(pixbuf);
+                        if (picture.Handle.IsInvalid) return false;
 
+                        using var gbytes = GLib.Bytes.New(bytes);
+                        using var stream = Gio.MemoryInputStream.NewFromBytes(gbytes);
+                        using var pixbuf = GdkPixbuf.Pixbuf.NewFromStream(stream, null)!;
+                        var texture = Gdk.Texture.NewForPixbuf(pixbuf);
                         picture.SetPaintable(texture);
                         _indicatorDots.Update();
                         return false;
@@ -797,6 +798,28 @@ public class FlatpakInstall(
         }
 
         _indicatorDots.Update();
+    }
+
+    private void CloseOverlay()
+    {
+        if (_overlay is null) return;
+        _overlay.SetVisible(false);
+        ClearCarousel();
+        _indicatorDots.Update();
+    }
+
+    private void ClearCarousel()
+    {
+        var children = _carousel.GetChildren();
+        _carousel.RemoveAll();
+        foreach (var child in children)
+        {
+            if (child is Picture picture)
+            {
+                picture.SetPaintable(null);
+            }
+            child.Dispose();
+        }
     }
 
     private static void OnSetup(SignalListItemFactory sender, SignalListItemFactory.SetupSignalArgs args)
@@ -846,7 +869,7 @@ public class FlatpakInstall(
         verifiedIcon.Vexpand = false;
         verifiedIcon.TooltipText = "Verified";
         titleGrid.Attach(verifiedIcon, 1, 0, 1, 1);
-        
+
         rightBox.Append(titleGrid);
 
         var idLabel = Label.New(string.Empty);
@@ -857,7 +880,7 @@ public class FlatpakInstall(
         idLabel.MaxWidthChars = 35;
         idLabel.WidthChars = -1;
         rightBox.Append(idLabel);
-        
+
         contentGrid.Attach(rightBox, 1, 0, 1, 2);
 
         var frame = Frame.New(null);
@@ -967,22 +990,36 @@ public class FlatpakInstall(
             });
 
             const int batchSize = 100;
-            for (var i = 0; i < _allPackages.Count; i += batchSize)
+            var total = _allPackages.Count;
+            var startIndex = 0;
+
+            while (startIndex < total)
             {
-                var currentBatch = _allPackages.Skip(i).Take(batchSize).ToList();
+                var start = startIndex;
+                var end = Math.Min(start + batchSize, total);
+                startIndex = end;
+
+                var tcs = new TaskCompletionSource();
                 GLib.Functions.IdleAdd(0, () =>
                 {
-                    if (ct.IsCancellationRequested) return false;
-                    foreach (var pkg in currentBatch)
+                    if (ct.IsCancellationRequested)
+                    {
+                        tcs.TrySetResult();
+                        return false;
+                    }
+
+                    var span = System.Runtime.InteropServices.CollectionsMarshal.AsSpan(_allPackages);
+                    for (var j = start; j < end; j++)
                     {
                         var o = FlatpakGObject.NewWithProperties([]);
-                        o.Package = pkg;
+                        o.Package = span[j];
                         _listStore!.Append(o);
                     }
 
+                    tcs.TrySetResult();
                     return false;
                 });
-                await Task.Delay(10, ct);
+                await tcs.Task;
             }
         }
         catch (OperationCanceledException)
@@ -996,11 +1033,13 @@ public class FlatpakInstall(
         {
             GLib.Functions.IdleAdd(0, () =>
             {
+                _allPackages.Clear();
                 // We always try to hide it, but only if not disposed
                 _loadingOverlay?.SetVisible(false);
                 _loadingSpinner?.Stop();
                 return false;
             });
+            GC.Collect(2, GCCollectionMode.Aggressive, true, true);
         }
     }
 

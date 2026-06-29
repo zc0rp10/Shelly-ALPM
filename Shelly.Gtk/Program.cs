@@ -293,16 +293,38 @@ sealed class Program
 
             void LoadPackagesPage()
             {
-                var nb = Notebook.New();
-                nb.Hexpand = true;
-                nb.Vexpand = true;
+                var stack = Stack.New();
+                stack.Hexpand = true;
+                stack.Vexpand = true;
+                stack.TransitionType = StackTransitionType.SlideLeftRight;
+
+                var switcher = StackSwitcher.New();
+                switcher.SetStack(stack);
+                switcher.Halign = Align.Start;
+                switcher.SetMarginTop(4);
+                switcher.SetMarginStart(8);
+
                 var w1 = serviceProvider.GetRequiredService<PackageInstall>();
-                nb.AppendPage(w1.CreateWindow(), Label.New(T("Install")));
+                stack.AddTitled(w1.CreateWindow(), "install", T("Install"));
+
                 var w2 = serviceProvider.GetRequiredService<PackageUpdate>();
-                nb.AppendPage(w2.CreateWindow(), Label.New(T("Updates")));
+                stack.AddTitled(w2.CreateWindow(), "updates", T("Updates"));
+
                 var w3 = serviceProvider.GetRequiredService<PackageManagement>();
-                nb.AppendPage(w3.CreateWindow(), Label.New(T("Manage")));
-                packagesPageBox.Append(nb);
+                stack.AddTitled(w3.CreateWindow(), "manage", T("Manage"));
+
+                var innerBox = Box.New(Orientation.Vertical, 0);
+                innerBox.Append(switcher);
+                innerBox.Append(stack);
+
+                var frame = Frame.New(null);
+                frame.Hexpand = true;
+                frame.Vexpand = true;
+                frame.SetMarginTop(4);
+                frame.SetChild(innerBox);
+
+                packagesPageBox.Append(frame);
+
                 currentPackagesWindows = [w1, w2, w3];
             }
 
@@ -315,16 +337,37 @@ sealed class Program
 
             void LoadAurPage()
             {
-                var nb = Notebook.New();
-                nb.Hexpand = true;
-                nb.Vexpand = true;
+                var stack = Stack.New();
+                stack.Hexpand = true;
+                stack.Vexpand = true;
+                stack.TransitionType = StackTransitionType.SlideLeftRight;
+
+                var switcher = StackSwitcher.New();
+                switcher.SetStack(stack);
+                switcher.Halign = Align.Start;
+                switcher.SetMarginTop(4);
+                switcher.SetMarginStart(8);
+
                 var w1 = serviceProvider.GetRequiredService<AurInstall>();
-                nb.AppendPage(w1.CreateWindow(), Label.New(T("Install")));
+                stack.AddTitled(w1.CreateWindow(), "install", T("Install"));
+
                 var w2 = serviceProvider.GetRequiredService<AurUpdate>();
-                nb.AppendPage(w2.CreateWindow(), Label.New(T("Updates")));
+                stack.AddTitled(w2.CreateWindow(), "updates", T("Updates"));
+
                 var w3 = serviceProvider.GetRequiredService<AurRemove>();
-                nb.AppendPage(w3.CreateWindow(), Label.New(T("Remove")));
-                aurPageBox.Append(nb);
+                stack.AddTitled(w3.CreateWindow(), "manage", T("Manage"));
+
+                var innerBox = Box.New(Orientation.Vertical, 0);
+                innerBox.Append(switcher);
+                innerBox.Append(stack);
+
+                var frame = Frame.New(null);
+                frame.Hexpand = true;
+                frame.Vexpand = true;
+                frame.SetMarginTop(4);
+                frame.SetChild(innerBox);
+
+                aurPageBox.Append(frame);
                 currentAurWindows = [w1, w2, w3];
             }
 

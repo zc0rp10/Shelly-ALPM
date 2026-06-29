@@ -987,9 +987,7 @@ public sealed class PackageInstall(
                 return false;
             });
             await cleared.Task;
-            GC.Collect();
-            GC.WaitForPendingFinalizers();
-            GC.Collect();
+
 
             ct.ThrowIfCancellationRequested();
 
@@ -1012,6 +1010,7 @@ public sealed class PackageInstall(
                     {
                         OverlayHelper.HideLoading(_loadingOverlay, _loadingSpinner);
                     }
+
                     packages.Clear();
                     packages.TrimExcess();
                     return false;
@@ -1064,6 +1063,7 @@ public sealed class PackageInstall(
                         OverlayHelper.HideLoading(_loadingOverlay, _loadingSpinner);
                     }
                 }
+
                 return false;
             });
         }
@@ -1083,6 +1083,10 @@ public sealed class PackageInstall(
                 _errorLabel.SetText(T("Failed to load packages."));
                 _errorLabel.SetVisible(true);
             }
+        }
+        finally
+        {
+            GC.Collect(2, GCCollectionMode.Aggressive, true, true);
         }
     }
 
