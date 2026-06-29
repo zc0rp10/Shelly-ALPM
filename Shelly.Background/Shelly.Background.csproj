@@ -8,6 +8,11 @@
         <PublishAot>true</PublishAot>
         <InvariantGlobalization>true</InvariantGlobalization>
         <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+        <RuntimeIdentifier>linux-x64</RuntimeIdentifier>
     </PropertyGroup>
+
+    <ItemGroup>
+      <ProjectReference Include="..\PackageManager\PackageManager.csproj" />
+    </ItemGroup>
 
 </Project>
